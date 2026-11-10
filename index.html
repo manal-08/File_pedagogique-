@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Générateur de Fiche Pédagogique - Mathématiques</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- PDF.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  </script>
+
+  <!-- JSZip & PPTX library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <!-- MathJax for rendering LaTeX -->
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']]
+      },
+      svg: { fontCache: 'global' }
+    };
+  </script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+  <style>
+    @media print {
+      @page {
+        size: A4 landscape;
+        margin: 5mm;
+      }
+      body {
+        background: white !important;
+        color: black !important;
+        font-size: 11pt;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .fiche-container {
+        box-shadow: none !important;
+        border: none !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 0 !important;
+      }
+      table {
+        page-break-inside: auto;
+      }
+      tr {
+        page-break-inside: avoid;
+        page-break-after: auto;
+      }
+    }
+
+    /* Pedagogical Strict Styling */
+    .title-roman { color: #dc2626 !important; font-weight: bold; text-decoration: underline; }
+    .title-arabic { color: #16a34a !important; font-weight: bold; }
+    .sky-blue { color: #0284c7 !important; font-weight: bold; }
+    .orange-text { color: #ea580c !important; font-weight: bold; }
+    .purple-text { color: #9333ea !important; font-weight: bold; }
+    .red-text { color: #dc2626 !important; font-weight: bold; }
+    .brown-text { color: #854d0e !important; font-weight: bold; }
+
+    .content-area p { margin-bottom: 0.5rem; line-height: 1.5; }
+    .content-area ul { list-style-type: disc; margin-left: 1.25rem; margin-bottom: 0.5rem; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 font-sans pb-12">
+
+  <!-- Header / Navbar -->
+  <header class="bg-indigo-900 text-white shadow-md no-print">
+    <div class="max-w-7xl mx-auto px-4 py-4 flex flex-wrap justify-between items-center gap-4">
+      <div class="flex items-center space-x-3">
+        <span class="text-2xl">🧮</span>
+        <div>
+          <h1 class="text-xl font-bold">Générateur de Fiche Pédagogique</h1>
+          <p class="text-xs text-indigo-200">Mathématiques - Extraction OCR & PPTX/PDF (Format Paysage)</p>
+        </div>
+      </div>
+      
+      <div class="flex items-center gap-3">
+        <button onclick="openApiKeyModal()" class="bg-indigo-700 hover:bg-indigo-600 px-3 py-1.5 rounded text-sm flex items-center gap-2 border border-indigo-500">
+          🔑 <span id="api-key-status">Clé API Gemini</span>
+        </button>
+        <button onclick="window.print()" class="bg-emerald-600 hover:bg-emerald-500 px-4 py-1.5 rounded text-sm font-semibold flex items-center gap-2 shadow">
+          🖨️ Imprimer / PDF
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-6">
+    
+    <!-- Controls & File Upload Section -->
+    <div class="bg-white rounded-xl shadow-sm p-5 mb-6 border border-slate-200 no-print">
+      <h2 class="text-base font-bold text-slate-700 mb-3 flex items-center gap-2">
+        📂 Charger un document (PDF, PPTX ou Image)
+      </h2>
+      
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- File Input Dropzone -->
+        <div class="md:col-span-2">
+          <label id="dropzone" class="border-2 border-dashed border-indigo-300 hover:border-indigo-500 bg-indigo-50/50 hover:bg-indigo-50 rounded-lg p-4 flex flex-col items-center justify-center cursor-pointer transition">
+            <span class="text-3xl mb-1">📄</span>
+            <span class="text-sm font-semibold text-indigo-900">Importer PDF, PPTX ou Image</span>
+            <span class="text-xs text-slate-500 mt-1">Le système sautera la 1ère page automatiquement</span>
+            <input type="file" id="file-input" accept=".pdf, .pptx, .png, .jpg, .jpeg" class="hidden" onchange="handleFileSelect(event)">
+          </label>
+        </div>
+
+        <!-- Options Panel -->
+        <div class="flex flex-col justify-between bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs text-slate-600 space-y-2">
+          <div>
+            <span class="font-semibold text-slate-700 block mb-1">ℹ️ Informations :</span>
+            <p>• Ignorer la page de garde (Page 1 passée automatiquement).</p>
+            <p>• Extraction automatique des expressions mathématiques ($LaTeX$).</p>
+            <p>• Application stricte du code couleur pédagogique.</p>
+          </div>
+          <button id="process-btn" onclick="processSelectedFile()" disabled class="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-semibold py-2 px-3 rounded transition flex items-center justify-center gap-2">
+            ✨ Lancer l'analyse AI
+          </button>
+        </div>
+      </div>
+
+      <!-- Loading State Indicator -->
+      <div id="loading-indicator" class="hidden mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs flex items-center gap-3">
+        <div class="animate-spin rounded-full h-4 w-4 border-2 border-amber-600 border-t-transparent"></div>
+        <span id="loading-text">Traitement en cours... Merci de patienter.</span>
+      </div>
+    </div>
+
+    <!-- Fiche Pédagogique Display Container -->
+    <div id="fiche-target" class="bg-white rounded-lg shadow-md p-4 border border-slate-300 fiche-container">
+      
+      <!-- Table Header Meta Info -->
+      <div class="grid grid-cols-3 border border-slate-400 text-xs mb-3 bg-slate-50">
+        <div class="p-2 border-r border-slate-400"><strong>Niveau :</strong> 2ème Année Collégiale</div>
+        <div class="p-2 border-r border-slate-400 text-center"><strong>Matière :</strong> Mathématiques</div>
+        <div class="p-2 text-right"><strong>Année Scolaire :</strong> 2026 / 2027</div>
+      </div>
+
+      <!-- Main Fiche Table (Landscape Optimized Grid) -->
+      <table class="w-full border-collapse border border-slate-400 text-xs">
+        <thead>
+          <tr class="bg-slate-100 text-slate-800">
+            <th class="border border-slate-400 p-1.5 w-12 text-center">S.</th>
+            <th class="border border-slate-400 p-1.5 w-12 text-center">Durée</th>
+            <th class="border border-slate-400 p-2 text-left" style="width: 58%;">Contenu de la Leçon</th>
+            <th class="border border-slate-400 p-1.5 text-left w-28">Rôle de l'enseignant</th>
+            <th class="border border-slate-400 p-1.5 text-left w-28">Rôle de l'apprenant</th>
+            <th class="border border-slate-400 p-1.5 text-left w-20">Observation</th>
+          </tr>
+        </thead>
+        <tbody id="fiche-body">
+          <tr>
+            <td colspan="6" class="p-8 text-center text-slate-400 italic">
+              Aucun fichier chargé. Veuillez sélectionner un fichier PDF ou PPTX pour générer la fiche.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+
+  <!-- API Key Modal -->
+  <div id="api-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm hidden items-center justify-center p-4 z-50 no-print">
+    <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-5 border border-slate-200">
+      <h3 class="text-base font-bold text-slate-800 mb-2">Clé API Google Gemini</h3>
+      <p class="text-xs text-slate-600 mb-4">
+        Cette clé est nécessaire pour exécuter l'OCR et reconnaître les formules mathématiques en $LaTeX$. Elle est stockée uniquement dans votre navigateur.
+      </p>
+      <input type="password" id="api-key-input" placeholder="AIzaSy..." class="w-full p-2 border border-slate-300 rounded text-sm mb-4 focus:ring-2 focus:ring-indigo-500 outline-none">
+      <div class="flex justify-end gap-2">
+        <button onclick="closeApiKeyModal()" class="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded">Annuler</button>
+        <button onclick="saveApiKey()" class="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded font-medium">Enregistrer</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let selectedFile = null;
+
+    // Helper: API Key Management
+    function getApiKey() {
+      return localStorage.getItem('gemini_api_key') || '';
+    }
+
+    function openApiKeyModal() {
+      document.getElementById('api-key-input').value = getApiKey();
+      document.getElementById('api-modal').classList.remove('hidden');
+      document.getElementById('api-modal').classList.add('flex');
+    }
+
+    function closeApiKeyModal() {
+      document.getElementById('api-modal').classList.add('hidden');
+      document.getElementById('api-modal').classList.remove('flex');
+    }
+
+    function saveApiKey() {
+      const key = document.getElementById('api-key-input').value.trim();
+      if (key) {
+        localStorage.setItem('gemini_api_key', key);
+        updateApiKeyStatus();
+        closeApiKeyModal();
+      }
+    }
+
+    function updateApiKeyStatus() {
+      const key = getApiKey();
+      const statusEl = document.getElementById('api-key-status');
+      if (key) {
+        statusEl.innerText = "Clé API : Configurée";
+      } else {
+        statusEl.innerText = "Configurer Clé API";
+      }
+    }
+    updateApiKeyStatus();
+
+    // Event Handlers
+    function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        selectedFile = file;
+        document.getElementById('process-btn').disabled = false;
+      }
+    }
+
+    // Convert PDF page to base64 canvas image
+    async function renderPdfPageToBase64(pdfDoc, pageNum) {
+      const page = await pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 1.5 });
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+
+      await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+      return canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+    }
+
+    // Process File Logic
+    async function processSelectedFile() {
+      const apiKey = getApiKey();
+      if (!apiKey) {
+        alert("Veuillez d'abord configurer votre clé API Gemini.");
+        openApiKeyModal();
+        return;
+      }
+
+      if (!selectedFile) return;
+
+      const loadingInd = document.getElementById('loading-indicator');
+      const loadingText = document.getElementById('loading-text');
+      loadingInd.classList.remove('hidden');
+
+      try {
+        let base64Images = [];
+
+        if (selectedFile.type === 'application/pdf') {
+          loadingText.innerText = "Extraction des pages du fichier PDF (à partir de la page 2)...";
+          const arrayBuffer = await selectedFile.arrayBuffer();
+          const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+          
+          // Skip page 1 automatically, read from page 2 to end
+          const startPage = pdfDoc.numPages > 1 ? 2 : 1;
+          for (let i = startPage; i <= pdfDoc.numPages; i++) {
+            loadingText.innerText = `Rendu de la page PDF ${i}/${pdfDoc.numPages}...`;
+            const b64 = await renderPdfPageToBase64(pdfDoc, i);
+            base64Images.push(b64);
+          }
+        } else if (selectedFile.type.startsWith('image/')) {
+          loadingText.innerText = "Préparation de l'image...";
+          const b64 = await fileToBase64(selectedFile);
+          base64Images.push(b64.split(',')[1]);
+        } else {
+          alert("Format non pris en charge directement via navigateur pour l'instant. Veuillez convertir en PDF ou Image.");
+          loadingInd.classList.add('hidden');
+          return;
+        }
+
+        loadingText.innerText = "Analyse AI et extraction des mathématiques ($LaTeX$)...";
+        const resultHTML = await analyzeImagesWithGemini(base64Images, apiKey);
+        
+        renderFicheContent(resultHTML);
+
+      } catch (err) {
+        alert("Erreur lors de l'analyse du fichier: " + err.message);
+        console.error(err);
+      } finally {
+        loadingInd.classList.add('hidden');
+      }
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // Gemini API Request
+    async function analyzeImagesWithGemini(base64Images, apiKey) {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
+      const promptText = `
+Tu es un expert en didactique des mathématiques au collège au Maroc. 
+Analyse les images transmises et génère le contenu sous la forme exacte d'une fiche pédagogique HTML.
+
+Respecte impérativement ces consignes strictes de couleurs et de balises HTML :
+1. Titres principaux avec numérotation romaine (ex: I. Le nombre rationnel) -> <span class="title-roman">I. Titre</span> (Rouge, souligné)
+2. Titres de sous-sections avec numérotation arabe (ex: 1) Le signe d'un nombre...) -> <span class="title-arabic">1) Titre</span> (Vert)
+3. "Activité", "Activité 1", "Définition", "Exemple", "Exemples" -> <span class="sky-blue">Activité</span> (Bleu ciel)
+4. "Propriété", "Propriétés" -> <span class="orange-text">Propriété</span> (Orange)
+5. "Règle", "Règles" -> <span class="purple-text">Règle</span> (Violet)
+6. "Application" -> <span class="red-text">Application</span> (Rouge)
+7. "Remarque", "Remarques" -> <span class="brown-text">Remarque</span> (Brun)
+
+IMPORTANT POUR LES MATHÉMATIQUES :
+- Convertis toutes les expressions, fractions, équations et formules mathématiques en format LaTeX inline avec $ ... $ ou display avec $$ ... $$.
+- Exemple : $\\frac{a}{b}$, $x \\in \\mathbb{R}$.
+
+Format de réponse attendu : Renvoie UNIQUEMENT un tableau JSON de lignes de fiche au format :
+[
+  {
+    "seance": "1",
+    "duree": "55min",
+    "contenu": "Contenu HTML formaté ici avec les balises de couleurs et LaTeX...",
+    "role_enseignant": "• Poser la question\\n• Guider la recherche",
+    "role_apprenant": "• Chercher la solution\\n• Participer au tableau",
+    "observation": ""
+  }
+]
+`;
+
+      const contents = [
+        {
+          parts: [
+            { text: promptText },
+            ...base64Images.map(b64 => ({
+              inline_data: {
+                mime_type: "image/jpeg",
+                data: b64
+              }
+            }))
+          ]
+        }
+      ];
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: contents })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erreur API (${response.status})`);
+      }
+
+      const data = await response.json();
+      const rawText = data.candidates[0].content.parts[0].text;
+      
+      // Clean JSON output
+      const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error("Format de réponse non conforme.");
+      }
+    }
+
+    function renderFicheContent(rowsData) {
+      const tbody = document.getElementById('fiche-body');
+      tbody.innerHTML = '';
+
+      rowsData.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-slate-300 hover:bg-slate-50/50';
+
+        tr.innerHTML = `
+          <td class="border border-slate-400 p-1.5 text-center font-bold">${row.seance || '1'}</td>
+          <td class="border border-slate-400 p-1.5 text-center">${row.duree || '55m'}</td>
+          <td class="border border-slate-400 p-3 content-area">${row.contenu || ''}</td>
+          <td class="border border-slate-400 p-1.5 whitespace-pre-line">${row.role_enseignant || ''}</td>
+          <td class="border border-slate-400 p-1.5 whitespace-pre-line">${row.role_apprenant || ''}</td>
+          <td class="border border-slate-400 p-1.5">${row.observation || ''}</td>
+        `;
+
+        tbody.appendChild(tr);
+      });
+
+      // Re-render MathJax formula expressions
+      if (window.MathJax) {
+        MathJax.typesetPromise();
+      }
+    }
+  </script>
+</body>
+</html>
