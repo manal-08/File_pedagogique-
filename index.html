@@ -14,6 +14,15 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   </script>
 
+  <!-- Google Gen AI SDK -->
+  <script type="importmap">
+    {
+      "imports": {
+        "@google/genai": "https://esm.run/@google/genai"
+      }
+    }
+  </script>
+
   <!-- MathJax for rendering LaTeX -->
   <script>
     window.MathJax = {
@@ -182,25 +191,27 @@
     </div>
   </div>
 
-  <script>
+  <script type="module">
+    import { GoogleGenAI } from "@google/genai";
+
     let selectedFile = null;
 
-    function getApiKey() {
+    window.getApiKey = function() {
       return localStorage.getItem('gemini_api_key') || '';
     }
 
-    function openApiKeyModal() {
+    window.openApiKeyModal = function() {
       document.getElementById('api-key-input').value = getApiKey();
       document.getElementById('api-modal').classList.remove('hidden');
       document.getElementById('api-modal').classList.add('flex');
     }
 
-    function closeApiKeyModal() {
+    window.closeApiKeyModal = function() {
       document.getElementById('api-modal').classList.add('hidden');
       document.getElementById('api-modal').classList.remove('flex');
     }
 
-    function saveApiKey() {
+    window.saveApiKey = function() {
       const key = document.getElementById('api-key-input').value.trim();
       if (key) {
         localStorage.setItem('gemini_api_key', key);
@@ -220,7 +231,7 @@
     }
     updateApiKeyStatus();
 
-    function handleFileSelect(event) {
+    window.handleFileSelect = function(event) {
       const file = event.target.files[0];
       if (file) {
         selectedFile = file;
@@ -237,10 +248,10 @@
       canvas.height = viewport.height;
 
       await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-      return canvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+      return canvas.toDataURL('image/jpeg', 0.85);
     }
 
-    async function processSelectedFile() {
+    window.processSelectedFile = async function() {
       const apiKey = getApiKey();
       if (!apiKey) {
         alert("Veuillez d'abord configurer votre clé API Gemini.");
@@ -255,7 +266,7 @@
       loadingInd.classList.remove('hidden');
 
       try {
-        let base64Images = [];
+        let imageParts = [];
 
         if (selectedFile.type === 'application/pdf') {
           loadingText.innerText = "Extraction des pages du fichier PDF (à partir de la page 2)...";
@@ -265,21 +276,33 @@
           const startPage = pdfDoc.numPages > 1 ? 2 : 1;
           for (let i = startPage; i <= pdfDoc.numPages; i++) {
             loadingText.innerText = `Rendu de la page PDF ${i}/${pdfDoc.numPages}...`;
-            const b64 = await renderPdfPageToBase64(pdfDoc, i);
-            base64Images.push(b64);
+            const dataUrl = await renderPdfPageToBase64(pdfDoc, i);
+            const base64Data = dataUrl.split(',')[1];
+            imageParts.push({
+              inlineData: {
+                mimeType: "image/jpeg",
+                data: base64Data
+              }
+            });
           }
         } else if (selectedFile.type.startsWith('image/')) {
           loadingText.innerText = "Préparation de l'image...";
-          const b64 = await fileToBase64(selectedFile);
-          base64Images.push(b64.split(',')[1]);
+          const dataUrl = await fileToBase64(selectedFile);
+          const base64Data = dataUrl.split(',')[1];
+          imageParts.push({
+            inlineData: {
+              mimeType: selectedFile.type,
+              data: base64Data
+            }
+          });
         } else {
-          alert("Format non pris en charge. Veuillez utiliser un PDF ou une image.");
+          alert("Format non pris en charge.");
           loadingInd.classList.add('hidden');
           return;
         }
 
         loadingText.innerText = "Analyse AI et extraction des mathématiques ($LaTeX$)...";
-        const resultHTML = await analyzeImagesWithGemini(base64Images, apiKey);
+        const resultHTML = await analyzeImagesWithGemini(imageParts, apiKey);
         
         renderFicheContent(resultHTML);
 
@@ -300,9 +323,8 @@
       });
     }
 
-    async function analyzeImagesWithGemini(base64Images, apiKey) {
-      // استخدام النموذج الأحدث المعتمد للرؤية والنصوص
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    async function analyzeImagesWithGemini(imageParts, apiKey) {
+      const ai = new GoogleGenAI({ apiKey: apiKey });
 
       const promptText = `
 Tu es un expert en didactique des mathématiques au collège au Maroc. 
@@ -321,7 +343,7 @@ IMPORTANT POUR LES MATHÉMATIQUES :
 - Convertis toutes les expressions, fractions, équations et formules mathématiques en format LaTeX inline avec $ ... $ ou display avec $$ ... $$.
 - Exemple : $\\frac{a}{b}$, $x \\in \\mathbb{R}$.
 
-Format de réponse attendu : Renvoie UNIQUEMENT un tableau JSON valide (sans texte additionnel) de lignes de fiche au format :
+Format de réponse attendu : Renvoie UNIQUEMENT un tableau JSON valide (sans texte additionnel autour, ni blocs markdown \`\`\`json) de lignes de fiche au format :
 [
   {
     "seance": "1",
@@ -334,32 +356,12 @@ Format de réponse attendu : Renvoie UNIQUEMENT un tableau JSON valide (sans tex
 ]
 `;
 
-      const contents = [
-        {
-          parts: [
-            { text: promptText },
-            ...base64Images.map(b64 => ({
-              inline_data: {
-                mime_type: "image/jpeg",
-                data: b64
-              }
-            }))
-          ]
-        }
-      ];
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: contents })
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [promptText, ...imageParts]
       });
 
-      if (!response.ok) {
-        throw new Error(`Erreur API (${response.status}) - Vérifiez votre clé API.`);
-      }
-
-      const data = await response.json();
-      const rawText = data.candidates[0].content.parts[0].text;
+      const rawText = response.text;
       
       const jsonMatch = rawText.match(/\[[\s\S]*\]/);
       if (jsonMatch) {
@@ -395,4 +397,5 @@ Format de réponse attendu : Renvoie UNIQUEMENT un tableau JSON valide (sans tex
     }
   </script>
 </body>
-</html>
+  </html>
+  
