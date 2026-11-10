@@ -14,9 +14,6 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   </script>
 
-  <!-- JSZip & PPTX library -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-
   <!-- MathJax for rendering LaTeX -->
   <script>
     window.MathJax = {
@@ -304,8 +301,8 @@
     }
 
     async function analyzeImagesWithGemini(base64Images, apiKey) {
-      // استخدام النموذج المستقر والمعتمد gemini-1.5-flash
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+      // استخدام النموذج الأحدث المعتمد للرؤية والنصوص
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
       const promptText = `
 Tu es un expert en didactique des mathématiques au collège au Maroc. 
